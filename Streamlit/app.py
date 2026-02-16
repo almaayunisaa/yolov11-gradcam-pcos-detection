@@ -6,6 +6,7 @@ from PIL import Image
 import io
 
 import streamlit as st
+import os
 
 import cv2
 import numpy as np
@@ -13,7 +14,10 @@ import torch
 import matplotlib.pyplot as plt
 from ultralytics import YOLO
 
-model = YOLO("best.pt")
+current_dir = os.path.dirname(os.path.abspath(__file__))
+model_path = os.path.join(current_dir, "best.pt")
+
+model = YOLO(model_path)
 
 model.model.float()
 model.model.eval()
