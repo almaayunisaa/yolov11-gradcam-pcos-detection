@@ -1,8 +1,12 @@
 streamlit==1.54.0
 torch
 torchvision
-ultralytics==8.4.14
 numpy==1.26.4
-opencv-python-headless
 pillow
 matplotlib
+opencv-python-headless
+ultralytics==8.4.14 --no-deps
+tqdm
+PyYAML
+requests
+scipy
