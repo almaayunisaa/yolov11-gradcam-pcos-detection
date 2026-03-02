@@ -22,8 +22,7 @@ model.model.to(device)
 PCOS_CLASS_ID   = 1
 NORMAL_CLASS_ID = 0
 
-THRESHOLD_PCOS   = 0.20
-THRESHOLD_NORMAL = 0.05
+THRESHOLD       = 0.2
 TOPK             = 50
 
 class_mapping = {0: "Normal", 1: "PCOS"}
@@ -66,40 +65,6 @@ def preprocess_image(img):
     img_tensor.requires_grad_(True)
     return img_tensor
 
-
-def compute_score(raw_logits, pred_id, pred_label):
-    if pred_label == "Normal":
-        return raw_logits[pred_id, :].mean()
-    else:
-        topk_values, _ = torch.topk(raw_logits[pred_id, :], k=TOPK)
-        return topk_values.sum()
-
-
-def apply_threshold(cam, pred_label):
-    threshold = THRESHOLD_PCOS if pred_label != "Normal" else THRESHOLD_NORMAL
-    cam[cam < threshold] = 0
-    return cam
-
-
-def apply_colormap(cam, pred_label):
-    if pred_label == "Normal":
-        colormap = cv2.COLORMAP_COOL
-    else:
-        colormap = cv2.COLORMAP_JET
-    return cv2.applyColorMap(np.uint8(255 * cam), colormap)
-
-
-def get_confidence(raw_logits, pred_id):
-    return float(raw_logits[pred_id, :].max().detach())
-
-
-def run_contrastive_backward(raw_logits):
-    pcos_scores = raw_logits[PCOS_CLASS_ID, :]
-    topk_values, _ = torch.topk(pcos_scores, k=TOPK)
-    contrastive_score = -topk_values.sum()
-    model.model.zero_grad()
-    contrastive_score.backward()
-
 def run_gradcam(img):
     if img is None:
         return None
@@ -113,23 +78,32 @@ def run_gradcam(img):
     output = preds[0]
     raw_logits = output[0, 4:, :]
 
-    pred_id = torch.argmax(raw_logits.sum(dim=1)).item()
-    pred_label = class_mapping.get(pred_id, "Unknown")
-    confidence = get_confidence(raw_logits, pred_id)
+    conf_normal = float(raw_logits[0, :].max().detach())
+    conf_pcos   = float(raw_logits[1, :].max().detach())
 
-    if pred_label == "Normal":
-        run_contrastive_backward(raw_logits)
+    PCOS_THRESHOLD = 0.15
+    if conf_pcos >= PCOS_THRESHOLD:
+        pred_id    = 1
+        confidence = conf_pcos
     else:
-        score = compute_score(raw_logits, pred_id, pred_label)
-        model.model.zero_grad()
-        score.backward()
+        pred_id    = 0
+        confidence = conf_normal
 
+    pred_label = class_mapping.get(pred_id, "Unknown")
+
+    target_logits = raw_logits[pred_id, :]
+    topk_values, _ = torch.topk(target_logits, k=TOPK)
+    score = topk_values.sum()
+
+    model.model.zero_grad()
+    score.backward()
+
+    # Generate CAM
     cam = gradcam.generate()
-    cam = apply_threshold(cam, pred_label)
+    cam[cam < THRESHOLD] = 0 
 
-    heatmap = apply_colormap(cam, pred_label)
+    heatmap = cv2.applyColorMap(np.uint8(255 * cam), cv2.COLORMAP_JET)  # JET seragam
     overlay = cv2.addWeighted(img, 0.7, heatmap, 0.3, 0)
-
     result_img = cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB)
 
     text = f"Pred: {pred_label} ({confidence:.2f})"
@@ -141,11 +115,11 @@ def run_gradcam(img):
     return result_img
 
 def preprocess_ori(image):
-    image_resized = cv2.resize(image, (640, 640))
-    image_bw = cv2.cvtColor(image_resized, cv2.COLOR_BGR2GRAY)
+    image_bw = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=5)
     clahe_img = clahe.apply(image_bw)
-    final_img = cv2.cvtColor(clahe_img, cv2.COLOR_GRAY2BGR)
+    image_resized = cv2.resize(clahe_img, (640, 640))
+    final_img = cv2.cvtColor(image_resized, cv2.COLOR_GRAY2BGR)
     return final_img
 
 if 'new_img' not in st.session_state:
