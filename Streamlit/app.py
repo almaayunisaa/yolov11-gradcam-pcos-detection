@@ -78,23 +78,14 @@ def run_gradcam(img):
     output = preds[0]
     raw_logits = output[0, 4:, :]
 
-    conf_normal = float(raw_logits[0, :].max().detach())
-    conf_pcos   = float(raw_logits[1, :].max().detach())
-
-    PCOS_THRESHOLD = 0.15
-    if conf_pcos >= PCOS_THRESHOLD:
-        pred_id    = 1
-        confidence = conf_pcos
-    else:
-        pred_id    = 0
-        confidence = conf_normal
-
+    pred_id    = torch.argmax(raw_logits.sum(dim=1)).item()
+    confidence = float(raw_logits[pred_id, :].max().detach())
     pred_label = class_mapping.get(pred_id, "Unknown")
 
     target_logits = raw_logits[pred_id, :]
     topk_values, _ = torch.topk(target_logits, k=TOPK)
     score = topk_values.sum()
-
+    
     model.model.zero_grad()
     score.backward()
 
